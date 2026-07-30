@@ -9,6 +9,9 @@ metadata, private tracker URLs, or personal media history in a public issue.
 ## Deployment guidance
 
 - Configure `UI_PASSWORD`.
+- Complete the one-time setup wizard only from a trusted local network. The
+  wizard is intentionally available without authentication until the first
+  administrator has been created.
 - Keep the dashboard on a trusted network or behind an authenticated reverse
   proxy.
 - Do not expose qBittorrent, Sonarr, Radarr, or Torrent Payload Guard directly

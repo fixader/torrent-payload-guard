@@ -21,6 +21,7 @@ type Config struct {
 	SonarrCategories, RadarrCategories   []string
 	DatabasePath, ListenAddress          string
 	SettingsPath, UIUsername, UIPassword string
+	NeedsSetup                           bool
 }
 
 type Settings struct {
@@ -68,9 +69,7 @@ func Load() (Config, error) {
 	if err := applySettings(&c); err != nil {
 		return Config{}, fmt.Errorf("load settings: %w", err)
 	}
-	if c.QBitURL == "" {
-		return Config{}, fmt.Errorf("QBIT_URL is required")
-	}
+	c.NeedsSetup = c.QBitURL == "" || c.QBitUsername == "" || c.UIPassword == ""
 	if c.ActionMode != "observe" && c.ActionMode != "pause" && c.ActionMode != "delete" {
 		return Config{}, fmt.Errorf("ACTION_MODE must be observe, pause, or delete")
 	}
@@ -146,6 +145,9 @@ func SaveSettings(c Config, incoming Settings) error {
 	if incoming.QBitURL == "" || incoming.QBitUsername == "" {
 		return fmt.Errorf("qBittorrent URL and username are required")
 	}
+	if incoming.QBitPassword == "" {
+		return fmt.Errorf("qBittorrent password is required")
+	}
 	data, err := json.MarshalIndent(incoming, "", "  ")
 	if err != nil {
 		return err
@@ -154,6 +156,43 @@ func SaveSettings(c Config, incoming Settings) error {
 		return err
 	}
 	temp := c.SettingsPath + ".tmp"
+	if err := os.WriteFile(temp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(temp, c.SettingsPath)
+}
+
+func SaveInitialSettings(c Config, incoming Settings) error {
+	incoming.UIUsername = strings.TrimSpace(incoming.UIUsername)
+	if incoming.UIUsername == "" {
+		incoming.UIUsername = "admin"
+	}
+	if incoming.UIPassword == "" {
+		return fmt.Errorf("dashboard password is required")
+	}
+	if len(incoming.UIPassword) < 10 {
+		return fmt.Errorf("dashboard password must be at least 10 characters")
+	}
+	if incoming.QBitURL == "" || incoming.QBitUsername == "" {
+		return fmt.Errorf("qBittorrent URL and username are required")
+	}
+	if incoming.QBitPassword == "" {
+		return fmt.Errorf("qBittorrent password is required")
+	}
+	if incoming.PollIntervalSeconds < 1 {
+		incoming.PollIntervalSeconds = int(c.PollInterval.Seconds())
+	}
+	if incoming.PauseUnmapped == nil {
+		incoming.PauseUnmapped = &c.PauseUnmapped
+	}
+	data, err := json.MarshalIndent(incoming, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(c.SettingsPath), 0750); err != nil {
+		return err
+	}
+	temp := c.SettingsPath + ".setup.tmp"
 	if err := os.WriteFile(temp, data, 0600); err != nil {
 		return err
 	}

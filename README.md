@@ -90,6 +90,15 @@ The published image supports `linux/amd64` and `linux/arm64`.
 5. Start the project.
 6. Open `http://YOUR-NAS-IP:8080/`.
 
+On a new installation, Guard opens a one-time setup wizard. It asks you to
+create the dashboard administrator and enter the qBittorrent connection.
+Sonarr and Radarr can be configured in the wizard or added later. After the
+wizard saves `/data/settings.json`, it is disabled and every dashboard and
+settings route requires authentication.
+
+Complete initial setup only from a trusted local network. Whoever completes
+the wizard first becomes the administrator.
+
 If qBittorrent, Sonarr, and Radarr use host networking, use loopback addresses
 such as `http://127.0.0.1:9865`, `http://127.0.0.1:8989`, and
 `http://127.0.0.1:7878`, and keep `network_mode: host`.
@@ -131,7 +140,7 @@ Suspicious torrents are tagged but never deleted automatically.
 
 | Variable | Default | Description |
 |---|---|---|
-| `QBIT_URL` | required | qBittorrent Web UI base URL |
+| `QBIT_URL` | empty | qBittorrent Web UI base URL; blank starts the setup wizard |
 | `QBIT_USERNAME` | empty | qBittorrent username |
 | `QBIT_PASSWORD` | empty | qBittorrent password |
 | `SONARR_URL` | empty | Sonarr base URL |
@@ -147,13 +156,15 @@ Suspicious torrents are tagged but never deleted automatically.
 | `RADARR_CATEGORIES` | `radarr` | Comma-separated qBit categories/tags |
 | `DANGEROUS_EXTENSIONS` | built in | Comma-separated extension list |
 | `UI_USERNAME` | `admin` | Dashboard username |
-| `UI_PASSWORD` | empty | Dashboard password; strongly recommended |
+| `UI_PASSWORD` | empty | Dashboard password; blank on a new install starts the setup wizard |
 | `DATABASE_PATH` | `/data/torrentguard.db` | Persistent SQLite path |
 | `SETTINGS_PATH` | `/data/settings.json` | Dashboard settings path |
 | `LISTEN_ADDRESS` | `:8080` | Dashboard listen address |
 
 Secrets are never returned by the settings API and are not written to logs.
 Leave a secret field blank on the settings page to retain its current value.
+Existing environment-based installations continue to start normally when
+qBittorrent details and `UI_PASSWORD` are already configured.
 
 ## Endpoints
 

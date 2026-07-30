@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -43,8 +44,14 @@ func main() {
 	defer cancel()
 
 	mux := http.NewServeMux()
+	var setupMu sync.Mutex
+	setupAvailable := cfg.NeedsSetup
 	auth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			if cfg.NeedsSetup {
+				http.Error(w, "initial setup required", http.StatusServiceUnavailable)
+				return
+			}
 			if cfg.UIPassword == "" {
 				next(w, r)
 				return
@@ -60,7 +67,50 @@ func main() {
 			next(w, r)
 		}
 	}
-	mux.HandleFunc("GET /", auth(webui.Dashboard))
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.NeedsSetup {
+			http.Redirect(w, r, "/setup", http.StatusSeeOther)
+			return
+		}
+		auth(webui.Dashboard)(w, r)
+	})
+	mux.HandleFunc("GET /setup", func(w http.ResponseWriter, r *http.Request) {
+		setupMu.Lock()
+		available := setupAvailable
+		setupMu.Unlock()
+		if !available {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
+		webui.Setup(w, r)
+	})
+	mux.HandleFunc("POST /api/setup", func(w http.ResponseWriter, r *http.Request) {
+		setupMu.Lock()
+		defer setupMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if !setupAvailable {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"initial setup is already complete"}`))
+			return
+		}
+		var incoming config.Settings
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32<<10)).Decode(&incoming); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid request"}`))
+			return
+		}
+		if err := config.SaveInitialSettings(cfg, incoming); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		setupAvailable = false
+		_, _ = w.Write([]byte(`{"status":"saved"}`))
+		go func() {
+			time.Sleep(750 * time.Millisecond)
+			cancel()
+		}()
+	})
 	mux.HandleFunc("GET /settings", auth(webui.Settings))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -119,6 +169,15 @@ func main() {
 		}
 	}()
 
+	if cfg.NeedsSetup {
+		logger.Info("initial setup required", "setup_url", "/setup")
+		<-ctx.Done()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = server.Shutdown(shutdownCtx)
+		shutdownCancel()
+		logger.Info("service stopped")
+		return
+	}
 	if err := qb.Login(ctx); err != nil {
 		logger.Warn("initial qBittorrent login failed; polling will retry", "error", err)
 	}

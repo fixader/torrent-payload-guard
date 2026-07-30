@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Set up Torrent Payload Guard</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0e1116;color:#e7edf5}*{box-sizing:border-box}
+body{margin:0}main{max-width:760px;margin:48px auto;padding:0 20px}.card{background:#171c24;border:1px solid #2a3442;border-radius:12px;padding:24px}
+h1{margin-top:0}p{color:#aeb9c8}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.wide{grid-column:1/-1}
+label{display:grid;gap:6px;font-weight:600}input{width:100%;padding:10px;border:1px solid #3a4657;border-radius:6px;background:#0d1218;color:#fff}
+button{margin-top:20px;padding:11px 18px;border:0;border-radius:6px;background:#36a269;color:white;font-weight:700;cursor:pointer}
+.message{margin-top:14px;color:#8dd9ad}.error{color:#ff8e8e}@media(max-width:620px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}}
+</style>
+</head>
+<body><main><div class="card">
+<h1>Welcome to Torrent Payload Guard</h1>
+<p>Create the dashboard administrator and connect qBittorrent. Sonarr and Radarr are optional and can be added now or later.</p>
+<form id="setup"><div class="grid">
+<label>Administrator username<input required name="UIUsername" value="admin" autocomplete="username"></label>
+<label>Administrator password<input required minlength="10" name="UIPassword" type="password" autocomplete="new-password"></label>
+<label class="wide">qBittorrent URL<input required name="QBitURL" placeholder="http://192.168.1.10:8081"></label>
+<label>qBittorrent username<input required name="QBitUsername" autocomplete="username"></label>
+<label>qBittorrent password<input required name="QBitPassword" type="password" autocomplete="new-password"></label>
+<label class="wide">Sonarr URL (optional)<input name="SonarrURL" placeholder="http://192.168.1.10:8989"></label>
+<label class="wide">Sonarr API key (optional)<input name="SonarrAPIKey" type="password"></label>
+<label class="wide">Radarr URL (optional)<input name="RadarrURL" placeholder="http://192.168.1.10:7878"></label>
+<label class="wide">Radarr API key (optional)<input name="RadarrAPIKey" type="password"></label>
+</div><button type="submit">Complete setup</button><div id="msg" class="message"></div></form>
+</div></main>
+<script>
+const form=document.querySelector('#setup'),msg=document.querySelector('#msg');
+form.onsubmit=async e=>{e.preventDefault();msg.className='message';msg.textContent='Saving…';
+const data=Object.fromEntries(new FormData(form));data.PollIntervalSeconds=30;data.PauseUnmapped=true;
+try{const r=await fetch('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok)throw new Error(out.error);msg.textContent='Setup complete. Guard is restarting…';form.querySelector('button').disabled=true;setTimeout(()=>location.href='/',3500)}
+catch(err){msg.className='message error';msg.textContent=err.message}};
+</script></body></html>
