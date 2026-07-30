@@ -1,0 +1,8 @@
+.env
+/DEPLOYMENT.local.md
+/settings.local.json
+/data/
+/torrentguard
+*.db
+*.db-shm
+*.db-wal
