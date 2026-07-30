@@ -17,7 +17,7 @@ type Config struct {
 	PollInterval                         time.Duration
 	DangerousExtensions                  []string
 	ActionMode                           string
-	DryRun, DeleteData                   bool
+	DryRun, DeleteData, PauseUnmapped    bool
 	SonarrCategories, RadarrCategories   []string
 	DatabasePath, ListenAddress          string
 	SettingsPath, UIUsername, UIPassword string
@@ -29,6 +29,7 @@ type Settings struct {
 	RadarrURL, RadarrAPIKey             string
 	PollIntervalSeconds                 int
 	UIUsername, UIPassword              string
+	PauseUnmapped                       *bool
 }
 
 var defaultDangerous = []string{
@@ -55,6 +56,7 @@ func Load() (Config, error) {
 		ActionMode:          strings.ToLower(env("ACTION_MODE", "observe")),
 		DryRun:              boolEnv("DRY_RUN", true),
 		DeleteData:          boolEnv("DELETE_DATA", false),
+		PauseUnmapped:       boolEnv("PAUSE_UNMAPPED", true),
 		SonarrCategories:    csvEnv("SONARR_CATEGORIES", []string{"sonarr"}),
 		RadarrCategories:    csvEnv("RADARR_CATEGORIES", []string{"radarr"}),
 		DatabasePath:        env("DATABASE_PATH", "/data/torrentguard.db"),
@@ -117,6 +119,9 @@ func applySettings(c *Config) error {
 	if s.UIPassword != "" {
 		c.UIPassword = s.UIPassword
 	}
+	if s.PauseUnmapped != nil {
+		c.PauseUnmapped = *s.PauseUnmapped
+	}
 	return nil
 }
 
@@ -132,6 +137,9 @@ func SaveSettings(c Config, incoming Settings) error {
 	}
 	incoming.UIUsername = c.UIUsername
 	incoming.UIPassword = c.UIPassword
+	if incoming.PauseUnmapped == nil {
+		incoming.PauseUnmapped = &c.PauseUnmapped
+	}
 	if incoming.PollIntervalSeconds < 1 {
 		return fmt.Errorf("poll interval must be positive")
 	}

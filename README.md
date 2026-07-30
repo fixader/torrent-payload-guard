@@ -142,6 +142,7 @@ Suspicious torrents are tagged but never deleted automatically.
 | `ACTION_MODE` | `observe` | `observe`, `pause`, or `delete` |
 | `DRY_RUN` | `true` | Prevents external changes |
 | `DELETE_DATA` | `false` | Deletes payload data in delete mode |
+| `PAUSE_UNMAPPED` | `true` | Pause/delete dangerous non-Arr torrents; when false they are tag-only |
 | `SONARR_CATEGORIES` | `sonarr` | Comma-separated qBit categories/tags |
 | `RADARR_CATEGORIES` | `radarr` | Comma-separated qBit categories/tags |
 | `DANGEROUS_EXTENSIONS` | built in | Comma-separated extension list |

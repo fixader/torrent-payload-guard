@@ -8,7 +8,7 @@
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% 0,#17392d 0,transparent 35%),var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}
     nav{height:58px;border-bottom:1px solid var(--line);background:rgba(7,16,13,.92);display:flex;align-items:center;padding:0 max(16px,calc((100% - 1180px)/2));gap:8px;position:sticky;top:0;z-index:5;backdrop-filter:blur(12px)}nav .brand{font-weight:850;margin-right:auto;color:var(--text);text-decoration:none}nav a:not(.brand){color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:9px}nav a.active{color:var(--bg);background:var(--green)}
     main{width:min(820px,calc(100% - 32px));margin:34px auto}a{color:var(--green)}h1{font-size:clamp(30px,5vw,46px);letter-spacing:-.04em;margin:12px 0 8px}.sub,.hint{color:var(--muted)}form{display:grid;gap:16px;margin-top:28px}
-    fieldset{border:1px solid var(--line);background:rgba(16,27,23,.94);border-radius:16px;padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px}legend{font-weight:800;padding:0 8px}.wide{grid-column:1/-1}
+    fieldset{border:1px solid var(--line);background:rgba(16,27,23,.94);border-radius:16px;padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px}legend{font-weight:800;padding:0 8px}.wide{grid-column:1/-1}.check{display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;color:var(--text)}.check input{width:18px;height:18px}
     label{display:grid;gap:6px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}input{width:100%;background:#08120e;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:11px 12px;font:15px ui-monospace,monospace}input:focus{outline:2px solid var(--green);outline-offset:1px}
     button{justify-self:start;border:0;border-radius:999px;background:var(--green);color:var(--bg);font-weight:850;padding:11px 18px;cursor:pointer}.message{min-height:24px}.error{color:var(--red)}
     @media(max-width:650px){main{margin:24px auto}fieldset{grid-template-columns:1fr}}
@@ -34,12 +34,14 @@
     <fieldset><legend>Operation</legend>
       <label>Poll interval (seconds)<input required name="PollIntervalSeconds" type="number" min="5" max="3600"></label>
       <div class="hint">Recommended: 30 seconds. Shorter intervals may increase qBittorrent load.</div>
+      <label class="check wide"><input name="PauseUnmapped" type="checkbox"> Pause dangerous downloads outside Sonarr/Radarr</label>
+      <div class="hint wide">When disabled, dangerous non-Arr torrents are tagged for visibility but are not paused or deleted.</div>
     </fieldset>
     <button type="submit">Save and restart Guard</button><div class="message" id="message"></div>
   </form>
 </main><script>
 const form=document.querySelector('#form'),msg=document.querySelector('#message');
-async function load(){const s=await fetch('/api/settings').then(r=>r.json());for(const [k,v] of Object.entries(s)){const el=form.elements[k];if(el&&typeof v!=='boolean')el.value=v??''}}
-form.onsubmit=async e=>{e.preventDefault();msg.className='message';msg.textContent='Saving…';const data=Object.fromEntries(new FormData(form));data.PollIntervalSeconds=Number(data.PollIntervalSeconds);try{const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok)throw new Error(out.error);msg.textContent='Saved. Guard is restarting…';setTimeout(()=>location.href='/',3500)}catch(err){msg.className='message error';msg.textContent=err.message}}
+async function load(){const s=await fetch('/api/settings').then(r=>r.json());for(const [k,v] of Object.entries(s)){const el=form.elements[k];if(!el)continue;if(el.type==='checkbox')el.checked=Boolean(v);else el.value=v??''}}
+form.onsubmit=async e=>{e.preventDefault();msg.className='message';msg.textContent='Saving…';const data=Object.fromEntries(new FormData(form));data.PollIntervalSeconds=Number(data.PollIntervalSeconds);data.PauseUnmapped=form.elements.PauseUnmapped.checked;try{const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok)throw new Error(out.error);msg.textContent='Saved. Guard is restarting…';setTimeout(()=>location.href='/',3500)}catch(err){msg.className='message error';msg.textContent=err.message}}
 load().catch(()=>{msg.className='message error';msg.textContent='Could not load settings.'});
 </script></body></html>

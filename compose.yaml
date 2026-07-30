@@ -18,6 +18,7 @@ services:
       ACTION_MODE: ${ACTION_MODE:-observe}
       DRY_RUN: ${DRY_RUN:-true}
       DELETE_DATA: ${DELETE_DATA:-false}
+      PAUSE_UNMAPPED: ${PAUSE_UNMAPPED:-true}
       SONARR_CATEGORIES: ${SONARR_CATEGORIES:-sonarr}
       RADARR_CATEGORIES: ${RADARR_CATEGORIES:-radarr}
       UI_USERNAME: ${UI_USERNAME:-admin}

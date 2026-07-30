@@ -88,6 +88,7 @@ func main() {
 			"QBitURL": cfg.QBitURL, "QBitUsername": cfg.QBitUsername, "QBitPassword": "",
 			"SonarrURL": cfg.SonarrURL, "SonarrAPIKey": "", "RadarrURL": cfg.RadarrURL,
 			"RadarrAPIKey": "", "PollIntervalSeconds": int(cfg.PollInterval.Seconds()),
+			"PauseUnmapped": cfg.PauseUnmapped,
 		})
 	}))
 	mux.HandleFunc("POST /api/settings", auth(func(w http.ResponseWriter, r *http.Request) {

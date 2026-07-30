@@ -90,7 +90,7 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		if record.PayloadStatus == string(classifier.Dangerous) {
 			s.M.DangerousDetected.Add(1)
 			if pending(record.ActionTaken) {
-				record.ActionTaken = s.handleDangerous(ctx, torrent)
+				record.ActionTaken = s.handleDangerous(ctx, torrent, s.target(torrent))
 			}
 			target := s.target(torrent)
 			if target != "none" && pending(record.ReportStatus) {
@@ -135,7 +135,7 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 	record.PayloadStatus, record.DangerousFiles = string(result.Status), result.DangerousFiles
 
 	if result.Status == classifier.Dangerous && pending(record.ActionTaken) {
-		record.ActionTaken = s.handleDangerous(ctx, torrent)
+		record.ActionTaken = s.handleDangerous(ctx, torrent, target)
 	}
 	if result.Status == classifier.Suspicious && pending(record.ActionTaken) {
 		record.ActionTaken = s.handleSuspicious(ctx, torrent)
@@ -149,7 +149,7 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 	return s.Store.Save(ctx, record)
 }
 
-func (s *Service) handleDangerous(ctx context.Context, torrent qbit.Torrent) string {
+func (s *Service) handleDangerous(ctx context.Context, torrent qbit.Torrent, target string) string {
 	if s.Config.DryRun {
 		return "dry-run"
 	}
@@ -159,6 +159,10 @@ func (s *Service) handleDangerous(ctx context.Context, torrent qbit.Torrent) str
 	if err := s.QBit.Tag(ctx, torrent.Hash, "payload-dangerous"); err != nil {
 		s.Log.Error("failed to tag dangerous torrent", "hash", torrent.Hash, "error", err)
 		return ""
+	}
+	if target == "none" && !s.Config.PauseUnmapped {
+		s.M.QBitActionsTaken.Add(1)
+		return "tagged-only"
 	}
 	switch s.Config.ActionMode {
 	case "pause":

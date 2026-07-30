@@ -77,3 +77,23 @@ func TestMetadataUnavailableDoesNothing(t *testing.T) {
 		t.Fatal("metadata-unavailable torrent was not safely skipped")
 	}
 }
+
+func TestUnmappedDangerousTorrentCanBeTagOnly(t *testing.T) {
+	store, _ := state.Open(filepath.Join(t.TempDir(), "test.db"))
+	defer store.Close()
+	qb := &fakeQBit{
+		torrents: []qbit.Torrent{{Hash: "unmapped", Name: "bad"}},
+		files:    map[string][]qbit.File{"unmapped": {{Name: "payload.exe"}}},
+	}
+	cfg := config.Config{
+		DangerousExtensions: []string{".exe"}, ActionMode: "pause",
+		PauseUnmapped: false,
+	}
+	svc := New(cfg, qb, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := svc.Scan(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if qb.tags != 1 || qb.pauses != 0 || qb.deletes != 0 {
+		t.Fatalf("expected tag-only behavior: tags=%d pauses=%d deletes=%d", qb.tags, qb.pauses, qb.deletes)
+	}
+}
