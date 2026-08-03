@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -13,6 +14,7 @@ type Record struct {
 	Hash, Name, Category, Tags, PayloadStatus, ActionTaken, ReportedTo, ReportStatus string
 	DangerousFiles                                                                   []string
 	FirstSeenAt, LastSeenAt                                                          string
+	AddedOn                                                                          int64
 }
 
 type Store struct{ db *sql.DB }
@@ -34,6 +36,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err = db.Exec(`ALTER TABLE torrents ADD COLUMN added_on INTEGER NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
@@ -43,9 +50,9 @@ func (s *Store) Get(ctx context.Context, hash string) (Record, bool, error) {
 	var r Record
 	var files string
 	err := s.db.QueryRowContext(ctx, `SELECT hash,name,category,tags,payload_status,action_taken,
-		dangerous_files,reported_to,report_status FROM torrents WHERE hash=?`, hash).Scan(
+		dangerous_files,reported_to,report_status,added_on FROM torrents WHERE hash=?`, hash).Scan(
 		&r.Hash, &r.Name, &r.Category, &r.Tags, &r.PayloadStatus, &r.ActionTaken,
-		&files, &r.ReportedTo, &r.ReportStatus)
+		&files, &r.ReportedTo, &r.ReportStatus, &r.AddedOn)
 	if err == sql.ErrNoRows {
 		return r, false, nil
 	}
@@ -60,7 +67,7 @@ func (s *Store) List(ctx context.Context, limit int) ([]Record, error) {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT hash,name,category,tags,payload_status,action_taken,
-		dangerous_files,reported_to,report_status,first_seen_at,last_seen_at
+		dangerous_files,reported_to,report_status,first_seen_at,last_seen_at,added_on
 		FROM torrents ORDER BY last_seen_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -72,7 +79,7 @@ func (s *Store) List(ctx context.Context, limit int) ([]Record, error) {
 		var files string
 		if err := rows.Scan(&r.Hash, &r.Name, &r.Category, &r.Tags, &r.PayloadStatus,
 			&r.ActionTaken, &files, &r.ReportedTo, &r.ReportStatus, &r.FirstSeenAt,
-			&r.LastSeenAt); err != nil {
+			&r.LastSeenAt, &r.AddedOn); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(files), &r.DangerousFiles)
@@ -85,13 +92,40 @@ func (s *Store) Save(ctx context.Context, r Record) error {
 	files, _ := json.Marshal(r.DangerousFiles)
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx, `INSERT INTO torrents
-		(hash,name,category,tags,first_seen_at,last_seen_at,payload_status,action_taken,dangerous_files,reported_to,report_status)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)
+		(hash,name,category,tags,first_seen_at,last_seen_at,payload_status,action_taken,dangerous_files,reported_to,report_status,added_on)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(hash) DO UPDATE SET name=excluded.name,category=excluded.category,tags=excluded.tags,
 		last_seen_at=excluded.last_seen_at,payload_status=excluded.payload_status,
 		action_taken=excluded.action_taken,dangerous_files=excluded.dangerous_files,
-		reported_to=excluded.reported_to,report_status=excluded.report_status`,
+		reported_to=excluded.reported_to,report_status=excluded.report_status,added_on=excluded.added_on`,
 		r.Hash, r.Name, r.Category, r.Tags, now, now, r.PayloadStatus, r.ActionTaken,
-		string(files), r.ReportedTo, r.ReportStatus)
+		string(files), r.ReportedTo, r.ReportStatus, r.AddedOn)
 	return err
+}
+
+func (s *Store) DeleteMissing(ctx context.Context, present map[string]struct{}) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT hash FROM torrents`)
+	if err != nil {
+		return err
+	}
+	var missing []string
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, ok := present[hash]; !ok {
+			missing = append(missing, hash)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, hash := range missing {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM torrents WHERE hash=?`, hash); err != nil {
+			return err
+		}
+	}
+	return nil
 }

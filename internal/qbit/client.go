@@ -19,6 +19,7 @@ type Torrent struct {
 	Tags     string  `json:"tags"`
 	State    string  `json:"state"`
 	Progress float64 `json:"progress"`
+	AddedOn  int64   `json:"added_on"`
 }
 type File struct {
 	Name string `json:"name"`

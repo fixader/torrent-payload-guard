@@ -65,6 +65,13 @@ func (s *Service) Scan(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	present := make(map[string]struct{}, len(torrents))
+	for _, torrent := range torrents {
+		present[torrent.Hash] = struct{}{}
+	}
+	if err := s.Store.DeleteMissing(ctx, present); err != nil {
+		return err
+	}
 	sort.SliceStable(torrents, func(i, j int) bool {
 		return s.target(torrents[i]) != "none" && s.target(torrents[j]) == "none"
 	})
@@ -84,16 +91,28 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 	if err != nil {
 		return err
 	}
+	if exists && record.AddedOn != 0 && torrent.AddedOn != 0 && record.AddedOn != torrent.AddedOn {
+		s.Log.Info("torrent instance changed; refreshing classification", "hash", torrent.Hash, "name", torrent.Name)
+		exists = false
+	}
 	if exists {
+		if record.AddedOn == 0 {
+			record.AddedOn = torrent.AddedOn
+		}
 		record.Name, record.Category, record.Tags = torrent.Name, torrent.Category, torrent.Tags
 		s.M.TorrentsScanned.Add(1)
 		if record.PayloadStatus == string(classifier.Dangerous) {
 			s.M.DangerousDetected.Add(1)
-			if pending(record.ActionTaken) {
-				record.ActionTaken = s.handleDangerous(ctx, torrent, s.target(torrent))
+			reapplied := !s.dangerousActionSatisfied(torrent)
+			if pending(record.ActionTaken) || reapplied {
+				action := s.handleDangerous(ctx, torrent, s.target(torrent))
+				if reapplied && action != "" {
+					action = "re-" + action
+				}
+				record.ActionTaken = action
 			}
 			target := s.target(torrent)
-			if target != "none" && pending(record.ReportStatus) {
+			if target != "none" && (pending(record.ReportStatus) || reapplied) {
 				record.ReportedTo, record.ReportStatus = target, s.report(ctx, target, torrent.Hash)
 			}
 		} else if record.PayloadStatus == string(classifier.Suspicious) {
@@ -130,7 +149,7 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		s.M.SuspiciousDetected.Add(1)
 	}
 
-	record = state.Record{Hash: torrent.Hash, ActionTaken: "", ReportedTo: "none"}
+	record = state.Record{Hash: torrent.Hash, ActionTaken: "", ReportedTo: "none", AddedOn: torrent.AddedOn}
 	record.Name, record.Category, record.Tags = torrent.Name, torrent.Category, torrent.Tags
 	record.PayloadStatus, record.DangerousFiles = string(result.Status), result.DangerousFiles
 
@@ -147,6 +166,38 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		"status", result.Status, "reason", result.Reason, "dangerous_files", result.DangerousFiles,
 		"action", record.ActionTaken, "reported_to", record.ReportedTo, "report_status", record.ReportStatus)
 	return s.Store.Save(ctx, record)
+}
+
+func (s *Service) dangerousActionSatisfied(torrent qbit.Torrent) bool {
+	if s.Config.DryRun || s.Config.ActionMode == "observe" {
+		return true
+	}
+	if !hasTag(torrent.Tags, "payload-dangerous") {
+		return false
+	}
+	if s.target(torrent) == "none" && !s.Config.PauseUnmapped {
+		return true
+	}
+	switch s.Config.ActionMode {
+	case "pause":
+		state := strings.ToLower(torrent.State)
+		return strings.HasPrefix(state, "stopped") || strings.HasPrefix(state, "paused")
+	case "delete":
+		// If qBittorrent still returns a torrent that should have been deleted,
+		// retry the idempotent delete request.
+		return false
+	default:
+		return true
+	}
+}
+
+func hasTag(tags, wanted string) bool {
+	for _, tag := range strings.Split(tags, ",") {
+		if strings.EqualFold(strings.TrimSpace(tag), wanted) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) handleDangerous(ctx context.Context, torrent qbit.Torrent, target string) string {
