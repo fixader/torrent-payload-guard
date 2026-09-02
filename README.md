@@ -61,6 +61,21 @@ mapping.
 
 ## Quick start with Docker Compose
 
+### Requirements
+
+- A Linux host or Synology NAS capable of running Docker containers.
+- Docker Engine with the Docker Compose v2 plugin, or Synology Container
+  Manager.
+- qBittorrent 5.0 or newer with its Web UI enabled. Guard uses the qBittorrent
+  Web API v2 `stop` endpoint introduced with qBittorrent 5.
+- Sonarr and/or Radarr with API v3 if Arr blocklisting is wanted. Either one is
+  optional; Guard can run with qBittorrent alone.
+- Network access from Guard to the qBittorrent Web UI and any configured Arr
+  application.
+
+Guard does not need access to download directories, media libraries, the
+Docker socket, or privileged mode.
+
 ```bash
 mkdir torrent-payload-guard
 cd torrent-payload-guard
@@ -69,7 +84,8 @@ curl -O https://raw.githubusercontent.com/fixader/torrent-payload-guard/main/.en
 cp .env.example .env
 ```
 
-Edit `.env`, then start:
+Optionally set your timezone and safe operating mode in `.env`. Connection
+details can remain blank and be entered in the first-run wizard. Then start:
 
 ```bash
 docker compose up -d
@@ -79,12 +95,15 @@ docker compose logs -f torrentguard
 Open the dashboard at `http://YOUR-NAS-IP:8080/`.
 
 The published image supports `linux/amd64` and `linux/arm64`.
+The supplied Compose file pulls the public prebuilt image; it does not build
+the source locally.
 
 ## Synology Container Manager
 
 1. Create `/volume1/docker/torrentguard`.
 2. Download `compose.yaml` and `.env.example` into that directory.
-3. Copy `.env.example` to `.env` and enter your connection details.
+3. Copy `.env.example` to `.env`. Connection details may be left blank for the
+   first-run wizard.
 4. In **Container Manager → Project → Create**, select the directory and use
    `compose.yaml`.
 5. Start the project.
@@ -103,10 +122,68 @@ If qBittorrent, Sonarr, and Radarr use host networking, use loopback addresses
 such as `http://127.0.0.1:9865`, `http://127.0.0.1:8989`, and
 `http://127.0.0.1:7878`, and keep `network_mode: host`.
 
-If they share a regular Docker network, use their service names instead, such
-as `http://qbittorrent:8080`.
+### Using a regular Docker network instead
+
+The supplied Compose file uses host networking, which is the simplest option
+for Synology and Linux hosts where the other applications expose host ports.
+If all applications share an external Docker network, replace
+`network_mode: host` with a port mapping and that network, for example:
+
+```yaml
+    ports:
+      - "8080:8080"
+    networks:
+      - arr-network
+
+networks:
+  arr-network:
+    external: true
+```
+
+Connect qBittorrent, Sonarr, and Radarr to the same network. Their URLs can
+then use Docker service names such as `http://qbittorrent:8080`. Do not use
+`127.0.0.1` in this bridge-network arrangement because it refers only to the
+Guard container.
 
 No privileged mode or Docker socket mount is required.
+
+## Integration setup
+
+In qBittorrent, enable the Web User Interface and create credentials Guard can
+use. The URL must point to the Web UI port, not qBittorrent's incoming torrent
+port. Guard currently authenticates with the Web UI username and password.
+
+In Sonarr and Radarr, find the API key under **Settings → General → Security**.
+Use the same qBittorrent category in Guard that the corresponding Arr download
+client uses. Defaults are `sonarr` and `radarr`; common custom values include
+`tv-sonarr`. Category matching is what tells Guard which Arr application must
+receive the failed-download/blocklist report.
+
+The first-run wizard stores integration credentials in the persistent
+`torrentguard-data` volume. Protect that volume as you would any other secrets.
+
+## Using Guard without Sonarr or Radarr
+
+Sonarr and Radarr are optional. Torrent Payload Guard can run as a standalone
+qBittorrent payload monitor: configure only the qBittorrent URL and credentials
+and leave both Arr URLs and API keys blank.
+
+With the default setting below, dangerous torrents outside Arr categories are
+tagged `payload-dangerous` and paused:
+
+```env
+PAUSE_UNMAPPED=true
+```
+
+To monitor and tag non-Arr torrents without pausing them, use:
+
+```env
+PAUSE_UNMAPPED=false
+```
+
+Without Arr integrations, Guard cannot report a download as failed or add its
+release to an Arr blocklist. Payload inspection, dashboard reporting, tagging,
+and the configured qBittorrent action continue to work normally.
 
 ## Safe first run
 
@@ -166,6 +243,21 @@ Leave a secret field blank on the settings page to retain its current value.
 Existing environment-based installations continue to start normally when
 qBittorrent details and `UI_PASSWORD` are already configured.
 
+## Updating
+
+The named `torrentguard-data` volume preserves the database and settings while
+the container is replaced:
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose logs --tail=100 torrentguard
+```
+
+Do not run `docker compose down -v` unless you intentionally want to erase the
+saved Guard configuration and history. Pin the `image:` line to a version tag,
+such as `v0.1.3`, if you prefer explicit upgrades instead of `latest`.
+
 ## Endpoints
 
 - `/` — authenticated dashboard
@@ -187,6 +279,8 @@ go run ./cmd/torrentguard
 Build locally:
 
 ```bash
+git clone https://github.com/fixader/torrent-payload-guard.git
+cd torrent-payload-guard
 docker build -t torrent-payload-guard .
 ```
 

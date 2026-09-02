@@ -1,12 +1,10 @@
 services:
   torrentguard:
-    build:
-      context: .
     image: ghcr.io/fixader/torrent-payload-guard:latest
     container_name: torrentguard
     restart: unless-stopped
     environment:
-      TZ: ${TZ:-Europe/Oslo}
+      TZ: ${TZ:-Etc/UTC}
       QBIT_URL: ${QBIT_URL:-}
       QBIT_USERNAME: ${QBIT_USERNAME:-}
       QBIT_PASSWORD: ${QBIT_PASSWORD:-}
@@ -26,7 +24,7 @@ services:
       SETTINGS_PATH: /data/settings.json
       DANGEROUS_EXTENSIONS: ${DANGEROUS_EXTENSIONS:-.exe,.scr,.bat,.cmd,.com,.msi,.msp,.ps1,.psm1,.vbs,.vbe,.js,.jse,.wsf,.wsh,.hta,.lnk,.jar,.reg,.dll,.apk}
     volumes:
-      - ./data:/data
+      - torrentguard-data:/data
     network_mode: host
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
@@ -36,3 +34,6 @@ services:
       start_period: 10s
     security_opt:
       - no-new-privileges:true
+
+volumes:
+  torrentguard-data:
