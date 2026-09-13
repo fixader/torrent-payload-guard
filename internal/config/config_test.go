@@ -10,7 +10,8 @@ import (
 func cleanConfigEnv(t *testing.T, settingsPath string) {
 	t.Helper()
 	for _, key := range []string{
-		"QBIT_URL", "QBIT_USERNAME", "QBIT_PASSWORD", "SONARR_URL", "SONARR_API_KEY",
+		"QBIT_URL", "QBIT_USERNAME", "QBIT_PASSWORD", "QBIT_API_KEY", "QBIT_AUTH_MODE",
+		"SONARR_URL", "SONARR_API_KEY",
 		"RADARR_URL", "RADARR_API_KEY", "UI_USERNAME", "UI_PASSWORD",
 	} {
 		t.Setenv(key, "")
@@ -80,5 +81,28 @@ func TestSaveInitialSettingsRequiresCredentials(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("invalid setup must not create a settings file")
+	}
+}
+
+func TestSaveInitialSettingsAcceptsAPIKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	cleanConfigEnv(t, path)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = SaveInitialSettings(cfg, Settings{
+		QBitURL: "http://nas:8080", QBitAuthMode: "api_key", QBitAPIKey: "qbt_example",
+		UIUsername: "owner", UIPassword: "a-long-password", PollIntervalSeconds: 30,
+	})
+	if err != nil {
+		t.Fatalf("API key setup was rejected: %v", err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.NeedsSetup || loaded.QBitAuthMode != "api_key" || loaded.QBitAPIKey != "qbt_example" {
+		t.Fatalf("API key setup was not loaded: %+v", loaded)
 	}
 }

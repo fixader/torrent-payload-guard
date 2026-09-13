@@ -19,5 +19,8 @@ metadata, private tracker URLs, or personal media history in a public issue.
 - Start with `ACTION_MODE=observe` and `DRY_RUN=true`.
 - Protect the persistent `/data` volume because it contains operational state
   and may contain saved integration credentials.
+- Prefer a qBittorrent API key on qBittorrent 5.2 or newer. Rotate the key in
+  qBittorrent and update Guard if it may have been exposed. Password
+  authentication remains supported for compatibility.
 
 This project is provided as-is without warranty. Use it at your own risk.

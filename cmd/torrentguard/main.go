@@ -38,7 +38,7 @@ func main() {
 	}
 	defer store.Close()
 
-	qb := qbit.New(cfg.QBitURL, cfg.QBitUsername, cfg.QBitPassword)
+	qb := qbit.New(cfg.QBitURL, cfg.QBitUsername, cfg.QBitPassword, cfg.QBitAPIKey, cfg.QBitAuthMode)
 	svc := service.New(cfg, qb, store, logger)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -135,7 +135,8 @@ func main() {
 	mux.HandleFunc("GET /api/settings", auth(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"QBitURL": cfg.QBitURL, "QBitUsername": cfg.QBitUsername, "QBitPassword": "",
+			"QBitURL": cfg.QBitURL, "QBitAuthMode": cfg.QBitAuthMode,
+			"QBitUsername": cfg.QBitUsername, "QBitPassword": "", "QBitAPIKey": "",
 			"SonarrURL": cfg.SonarrURL, "SonarrAPIKey": "", "RadarrURL": cfg.RadarrURL,
 			"RadarrAPIKey": "", "PollIntervalSeconds": int(cfg.PollInterval.Seconds()),
 			"PauseUnmapped": cfg.PauseUnmapped,
