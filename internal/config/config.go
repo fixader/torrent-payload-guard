@@ -11,26 +11,26 @@ import (
 )
 
 type Config struct {
-	QBitURL, QBitUsername, QBitPassword  string
-	SonarrURL, SonarrAPIKey              string
-	RadarrURL, RadarrAPIKey              string
-	PollInterval                         time.Duration
-	DangerousExtensions                  []string
-	ActionMode                           string
-	DryRun, DeleteData, PauseUnmapped    bool
-	SonarrCategories, RadarrCategories   []string
-	DatabasePath, ListenAddress          string
-	SettingsPath, UIUsername, UIPassword string
-	NeedsSetup                           bool
+	QBitURL, QBitUsername, QBitPassword, QBitAPIKey, QBitAuthMode string
+	SonarrURL, SonarrAPIKey                                       string
+	RadarrURL, RadarrAPIKey                                       string
+	PollInterval                                                  time.Duration
+	DangerousExtensions                                           []string
+	ActionMode                                                    string
+	DryRun, DeleteData, PauseUnmapped                             bool
+	SonarrCategories, RadarrCategories                            []string
+	DatabasePath, ListenAddress                                   string
+	SettingsPath, UIUsername, UIPassword                          string
+	NeedsSetup                                                    bool
 }
 
 type Settings struct {
-	QBitURL, QBitUsername, QBitPassword string
-	SonarrURL, SonarrAPIKey             string
-	RadarrURL, RadarrAPIKey             string
-	PollIntervalSeconds                 int
-	UIUsername, UIPassword              string
-	PauseUnmapped                       *bool
+	QBitURL, QBitUsername, QBitPassword, QBitAPIKey, QBitAuthMode string
+	SonarrURL, SonarrAPIKey                                       string
+	RadarrURL, RadarrAPIKey                                       string
+	PollIntervalSeconds                                           int
+	UIUsername, UIPassword                                        string
+	PauseUnmapped                                                 *bool
 }
 
 var defaultDangerous = []string{
@@ -48,6 +48,8 @@ func Load() (Config, error) {
 		QBitURL:             strings.TrimRight(os.Getenv("QBIT_URL"), "/"),
 		QBitUsername:        os.Getenv("QBIT_USERNAME"),
 		QBitPassword:        os.Getenv("QBIT_PASSWORD"),
+		QBitAPIKey:          os.Getenv("QBIT_API_KEY"),
+		QBitAuthMode:        strings.ToLower(env("QBIT_AUTH_MODE", "auto")),
 		SonarrURL:           strings.TrimRight(os.Getenv("SONARR_URL"), "/"),
 		SonarrAPIKey:        os.Getenv("SONARR_API_KEY"),
 		RadarrURL:           strings.TrimRight(os.Getenv("RADARR_URL"), "/"),
@@ -69,7 +71,10 @@ func Load() (Config, error) {
 	if err := applySettings(&c); err != nil {
 		return Config{}, fmt.Errorf("load settings: %w", err)
 	}
-	c.NeedsSetup = c.QBitURL == "" || c.QBitUsername == "" || c.UIPassword == ""
+	if c.QBitAuthMode != "auto" && c.QBitAuthMode != "api_key" && c.QBitAuthMode != "password" {
+		return Config{}, fmt.Errorf("QBIT_AUTH_MODE must be auto, api_key, or password")
+	}
+	c.NeedsSetup = c.QBitURL == "" || !qbitAuthConfigured(c) || c.UIPassword == ""
 	if c.ActionMode != "observe" && c.ActionMode != "pause" && c.ActionMode != "delete" {
 		return Config{}, fmt.Errorf("ACTION_MODE must be observe, pause, or delete")
 	}
@@ -96,6 +101,12 @@ func applySettings(c *Config) error {
 	}
 	if s.QBitPassword != "" {
 		c.QBitPassword = s.QBitPassword
+	}
+	if s.QBitAPIKey != "" {
+		c.QBitAPIKey = s.QBitAPIKey
+	}
+	if s.QBitAuthMode != "" {
+		c.QBitAuthMode = strings.ToLower(s.QBitAuthMode)
 	}
 	if s.SonarrURL != "" {
 		c.SonarrURL = strings.TrimRight(s.SonarrURL, "/")
@@ -128,6 +139,12 @@ func SaveSettings(c Config, incoming Settings) error {
 	if incoming.QBitPassword == "" {
 		incoming.QBitPassword = c.QBitPassword
 	}
+	if incoming.QBitAPIKey == "" {
+		incoming.QBitAPIKey = c.QBitAPIKey
+	}
+	if incoming.QBitAuthMode == "" {
+		incoming.QBitAuthMode = c.QBitAuthMode
+	}
 	if incoming.SonarrAPIKey == "" {
 		incoming.SonarrAPIKey = c.SonarrAPIKey
 	}
@@ -142,11 +159,11 @@ func SaveSettings(c Config, incoming Settings) error {
 	if incoming.PollIntervalSeconds < 1 {
 		return fmt.Errorf("poll interval must be positive")
 	}
-	if incoming.QBitURL == "" || incoming.QBitUsername == "" {
-		return fmt.Errorf("qBittorrent URL and username are required")
+	if incoming.QBitURL == "" {
+		return fmt.Errorf("qBittorrent URL is required")
 	}
-	if incoming.QBitPassword == "" {
-		return fmt.Errorf("qBittorrent password is required")
+	if err := validateQBitSettings(incoming); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(incoming, "", "  ")
 	if err != nil {
@@ -173,11 +190,14 @@ func SaveInitialSettings(c Config, incoming Settings) error {
 	if len(incoming.UIPassword) < 10 {
 		return fmt.Errorf("dashboard password must be at least 10 characters")
 	}
-	if incoming.QBitURL == "" || incoming.QBitUsername == "" {
-		return fmt.Errorf("qBittorrent URL and username are required")
+	if incoming.QBitURL == "" {
+		return fmt.Errorf("qBittorrent URL is required")
 	}
-	if incoming.QBitPassword == "" {
-		return fmt.Errorf("qBittorrent password is required")
+	if incoming.QBitAuthMode == "" {
+		incoming.QBitAuthMode = "auto"
+	}
+	if err := validateQBitSettings(incoming); err != nil {
+		return err
 	}
 	if incoming.PollIntervalSeconds < 1 {
 		incoming.PollIntervalSeconds = int(c.PollInterval.Seconds())
@@ -197,6 +217,41 @@ func SaveInitialSettings(c Config, incoming Settings) error {
 		return err
 	}
 	return os.Rename(temp, c.SettingsPath)
+}
+
+func validateQBitSettings(s Settings) error {
+	return validateQBitAuth(Config{
+		QBitUsername: s.QBitUsername, QBitPassword: s.QBitPassword,
+		QBitAPIKey: s.QBitAPIKey, QBitAuthMode: strings.ToLower(s.QBitAuthMode),
+	})
+}
+
+func validateQBitAuth(c Config) error {
+	mode := strings.ToLower(c.QBitAuthMode)
+	if mode == "" {
+		mode = "auto"
+	}
+	switch mode {
+	case "api_key":
+		if c.QBitAPIKey == "" {
+			return fmt.Errorf("qBittorrent API key is required for API key authentication")
+		}
+	case "password":
+		if c.QBitUsername == "" || c.QBitPassword == "" {
+			return fmt.Errorf("qBittorrent username and password are required for password authentication")
+		}
+	case "auto":
+		if c.QBitAPIKey == "" && (c.QBitUsername == "" || c.QBitPassword == "") {
+			return fmt.Errorf("qBittorrent API key or username and password are required")
+		}
+	default:
+		return fmt.Errorf("QBIT_AUTH_MODE must be auto, api_key, or password")
+	}
+	return nil
+}
+
+func qbitAuthConfigured(c Config) bool {
+	return validateQBitAuth(c) == nil
 }
 
 func env(key, fallback string) string {

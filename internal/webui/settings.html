@@ -9,7 +9,7 @@
     nav{height:58px;border-bottom:1px solid var(--line);background:rgba(7,16,13,.92);display:flex;align-items:center;padding:0 max(16px,calc((100% - 1180px)/2));gap:8px;position:sticky;top:0;z-index:5;backdrop-filter:blur(12px)}nav .brand{font-weight:850;margin-right:auto;color:var(--text);text-decoration:none}nav a:not(.brand){color:var(--muted);text-decoration:none;padding:8px 12px;border-radius:9px}nav a.active{color:var(--bg);background:var(--green)}
     main{width:min(820px,calc(100% - 32px));margin:34px auto}a{color:var(--green)}h1{font-size:clamp(30px,5vw,46px);letter-spacing:-.04em;margin:12px 0 8px}.sub,.hint{color:var(--muted)}form{display:grid;gap:16px;margin-top:28px}
     fieldset{border:1px solid var(--line);background:rgba(16,27,23,.94);border-radius:16px;padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:16px}legend{font-weight:800;padding:0 8px}.wide{grid-column:1/-1}.check{display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;color:var(--text)}.check input{width:18px;height:18px}
-    label{display:grid;gap:6px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}input{width:100%;background:#08120e;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:11px 12px;font:15px ui-monospace,monospace}input:focus{outline:2px solid var(--green);outline-offset:1px}
+    label{display:grid;gap:6px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.07em}input,select{width:100%;background:#08120e;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:11px 12px;font:15px ui-monospace,monospace}input:focus,select:focus{outline:2px solid var(--green);outline-offset:1px}
     button{justify-self:start;border:0;border-radius:999px;background:var(--green);color:var(--bg);font-weight:850;padding:11px 18px;cursor:pointer}.message{min-height:24px}.error{color:var(--red)}
     @media(max-width:650px){main{margin:24px auto}fieldset{grid-template-columns:1fr}}
   </style>
@@ -20,8 +20,11 @@
   <form id="form">
     <fieldset><legend>qBittorrent</legend>
       <label class="wide">URL<input required name="QBitURL" placeholder="http://127.0.0.1:9865"></label>
-      <label>Username<input required name="QBitUsername" autocomplete="username"></label>
+      <label class="wide">Authentication<select name="QBitAuthMode"><option value="auto">Automatic (prefer API key)</option><option value="api_key">API key</option><option value="password">Username and password</option></select></label>
+      <label class="wide">API key (qBittorrent 5.2+)<input name="QBitAPIKey" type="password" autocomplete="new-password" placeholder="Retain current value"></label>
+      <label>Username<input name="QBitUsername" autocomplete="username"></label>
       <label>Password<input name="QBitPassword" type="password" autocomplete="new-password" placeholder="Retain current value"></label>
+      <div class="hint wide">Automatic uses the API key when one is configured; otherwise it uses username and password. Leave secret fields empty to retain saved values.</div>
     </fieldset>
     <fieldset><legend>Sonarr</legend>
       <label class="wide">URL<input name="SonarrURL" placeholder="http://127.0.0.1:8989"></label>

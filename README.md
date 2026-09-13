@@ -67,7 +67,8 @@ mapping.
 - Docker Engine with the Docker Compose v2 plugin, or Synology Container
   Manager.
 - qBittorrent 5.0 or newer with its Web UI enabled. Guard uses the qBittorrent
-  Web API v2 `stop` endpoint introduced with qBittorrent 5.
+  Web API v2 `stop` endpoint introduced with qBittorrent 5. API key
+  authentication requires qBittorrent 5.2.0 or WebAPI 2.14.1.
 - Sonarr and/or Radarr with API v3 if Arr blocklisting is wanted. Either one is
   optional; Guard can run with qBittorrent alone.
 - Network access from Guard to the qBittorrent Web UI and any configured Arr
@@ -151,7 +152,24 @@ No privileged mode or Docker socket mount is required.
 
 In qBittorrent, enable the Web User Interface and create credentials Guard can
 use. The URL must point to the Web UI port, not qBittorrent's incoming torrent
-port. Guard currently authenticates with the Web UI username and password.
+port.
+
+### qBittorrent authentication
+
+Guard supports both qBittorrent authentication systems:
+
+| Method | qBittorrent requirement | How it works | What Guard can do |
+|---|---|---|---|
+| API key | qBittorrent 5.2.0+ or WebAPI 2.14.1+ | Sends `Authorization: Bearer qbt_…` with every request. Stateless; no login cookie. Generate it under **Preferences → WebUI → API Key**. qBittorrent currently supports one key, and rotating it immediately invalidates the old key. | Read torrents and file lists, add Guard tags, stop dangerous torrents, and delete them when explicitly configured. API keys cannot access qBittorrent login/logout endpoints or static Web UI files, which Guard does not need. |
+| Username and password | qBittorrent 5.0+ | Logs in through `/api/v2/auth/login` and uses qBittorrent's session cookie. | The same Guard operations as API-key mode. Retained for compatibility with qBittorrent versions before 5.2 and existing installations. |
+
+`QBIT_AUTH_MODE=auto` is the default and prefers an API key when one is
+configured; otherwise it uses username and password. Use `api_key` or
+`password` to force one method. API key authentication is recommended for new
+qBittorrent 5.2+ installations because Guard does not need to retain a Web UI
+password or manage a login session. See qBittorrent's official
+[API key authentication documentation](https://github.com/qbittorrent/qBittorrent/wiki/API-Key-Authentication-%28%E2%89%A5v5.2.0%29)
+for generation, format, rotation, and limitations.
 
 In Sonarr and Radarr, find the API key under **Settings → General → Security**.
 Use the same qBittorrent category in Guard that the corresponding Arr download
@@ -220,6 +238,8 @@ Suspicious torrents are tagged but never deleted automatically.
 | `QBIT_URL` | empty | qBittorrent Web UI base URL; blank starts the setup wizard |
 | `QBIT_USERNAME` | empty | qBittorrent username |
 | `QBIT_PASSWORD` | empty | qBittorrent password |
+| `QBIT_API_KEY` | empty | qBittorrent 5.2+ API key; sent as a Bearer token |
+| `QBIT_AUTH_MODE` | `auto` | `auto`, `api_key`, or `password`; auto prefers an API key |
 | `SONARR_URL` | empty | Sonarr base URL |
 | `SONARR_API_KEY` | empty | Sonarr API key |
 | `RADARR_URL` | empty | Radarr base URL |
@@ -256,7 +276,7 @@ docker compose logs --tail=100 torrentguard
 
 Do not run `docker compose down -v` unless you intentionally want to erase the
 saved Guard configuration and history. Pin the `image:` line to a version tag,
-such as `v0.1.3`, if you prefer explicit upgrades instead of `latest`.
+such as `v0.2.0`, if you prefer explicit upgrades instead of `latest`.
 
 ## Endpoints
 
