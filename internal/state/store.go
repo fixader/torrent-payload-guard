@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -25,6 +26,28 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	// The dashboard reads the state database while the scanner writes to it.
+	// WAL keeps those operations from blocking each other, while busy_timeout
+	// makes short-lived filesystem/backup locks wait instead of disabling an
+	// entire poll cycle with SQLITE_BUSY.
+	if _, err = db.Exec(`PRAGMA busy_timeout = 10000`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	var journalMode string
+	if err = db.QueryRow(`PRAGMA journal_mode = WAL`).Scan(&journalMode); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		db.Close()
+		return nil, fmt.Errorf("enable SQLite WAL mode: got %q", journalMode)
+	}
+	if _, err = db.Exec(`PRAGMA synchronous = NORMAL`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS torrents (
 		hash TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, tags TEXT,
 		first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
