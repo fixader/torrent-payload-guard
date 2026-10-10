@@ -21,7 +21,9 @@ type QBit interface {
 	Torrents(context.Context) ([]qbit.Torrent, error)
 	Files(context.Context, string) ([]qbit.File, error)
 	Tag(context.Context, string, string) error
+	Untag(context.Context, string, string) error
 	Pause(context.Context, string) error
+	Resume(context.Context, string) error
 	Delete(context.Context, string, bool) error
 }
 
@@ -95,6 +97,43 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		s.Log.Info("torrent instance changed; refreshing classification", "hash", torrent.Hash, "name", torrent.Name)
 		exists = false
 	}
+	if exists && hasTag(torrent.Tags, "payload-allowed") {
+		record.Name, record.Category, record.Tags = torrent.Name, torrent.Category, torrent.Tags
+		record.PayloadStatus, record.ActionTaken = "allowed", "allowed by user"
+		s.M.TorrentsScanned.Add(1)
+		return s.Store.Save(ctx, record)
+	}
+	if exists && record.PayloadStatus == string(classifier.Dangerous) {
+		files, err := s.QBit.Files(ctx, torrent.Hash)
+		if err != nil {
+			return err
+		}
+		names := selectedFileNames(files)
+		if len(names) == 0 {
+			s.M.MetadataUnavailable.Add(1)
+			return nil
+		}
+		result := classifier.Classify(names, s.Config.DangerousExtensions)
+		if result.Status == classifier.Suspicious && s.target(torrent) == "none" {
+			result.Status, result.Reason = classifier.OK, "non-media torrent outside Sonarr/Radarr categories"
+		}
+		if result.Status != classifier.Dangerous {
+			record.Name, record.Category, record.Tags = torrent.Name, torrent.Category, torrent.Tags
+			record.PayloadStatus, record.DangerousFiles = string(result.Status), result.DangerousFiles
+			if !s.Config.DryRun && s.Config.ActionMode != "observe" && record.ActionTaken != "" {
+				if err := s.QBit.Untag(ctx, torrent.Hash, "payload-dangerous"); err != nil {
+					return err
+				}
+				if err := s.QBit.Resume(ctx, torrent.Hash); err != nil {
+					return err
+				}
+				record.ActionTaken = "released after file selection changed"
+			}
+			s.Log.Info("dangerous payload cleared after file selection changed", "hash", torrent.Hash, "name", torrent.Name)
+			return s.Store.Save(ctx, record)
+		}
+		record.DangerousFiles = result.DangerousFiles
+	}
 	if exists {
 		if record.AddedOn == 0 {
 			record.AddedOn = torrent.AddedOn
@@ -133,9 +172,10 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		s.Log.Debug("metadata unavailable", "hash", torrent.Hash, "name", torrent.Name)
 		return nil
 	}
-	names := make([]string, 0, len(files))
-	for _, file := range files {
-		names = append(names, file.Name)
+	names := selectedFileNames(files)
+	if len(names) == 0 {
+		s.M.MetadataUnavailable.Add(1)
+		return nil
 	}
 	result := classifier.Classify(names, s.Config.DangerousExtensions)
 	target := s.target(torrent)
@@ -152,6 +192,11 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 	record = state.Record{Hash: torrent.Hash, ActionTaken: "", ReportedTo: "none", AddedOn: torrent.AddedOn}
 	record.Name, record.Category, record.Tags = torrent.Name, torrent.Category, torrent.Tags
 	record.PayloadStatus, record.DangerousFiles = string(result.Status), result.DangerousFiles
+	if hasTag(torrent.Tags, "payload-allowed") {
+		record.PayloadStatus, record.ActionTaken = "allowed", "allowed by user"
+		s.Log.Info("payload override applied", "hash", torrent.Hash, "name", torrent.Name)
+		return s.Store.Save(ctx, record)
+	}
 
 	if result.Status == classifier.Dangerous && pending(record.ActionTaken) {
 		record.ActionTaken = s.handleDangerous(ctx, torrent, target)
@@ -166,6 +211,18 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		"status", result.Status, "reason", result.Reason, "dangerous_files", result.DangerousFiles,
 		"action", record.ActionTaken, "reported_to", record.ReportedTo, "report_status", record.ReportStatus)
 	return s.Store.Save(ctx, record)
+}
+
+func selectedFileNames(files []qbit.File) []string {
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		// qBittorrent priority 0 means the user explicitly selected "do not
+		// download". Such files cannot become part of the downloaded payload.
+		if file.Priority != 0 {
+			names = append(names, file.Name)
+		}
+	}
+	return names
 }
 
 func (s *Service) dangerousActionSatisfied(torrent qbit.Torrent) bool {

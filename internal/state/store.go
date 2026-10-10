@@ -91,7 +91,9 @@ func (s *Store) List(ctx context.Context, limit int) ([]Record, error) {
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT hash,name,category,tags,payload_status,action_taken,
 		dangerous_files,reported_to,report_status,first_seen_at,last_seen_at,added_on
-		FROM torrents ORDER BY last_seen_at DESC LIMIT ?`, limit)
+		FROM torrents ORDER BY
+		CASE payload_status WHEN 'dangerous' THEN 0 WHEN 'suspicious' THEN 1 WHEN 'allowed' THEN 2 ELSE 3 END,
+		last_seen_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}

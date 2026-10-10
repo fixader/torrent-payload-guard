@@ -38,6 +38,17 @@ Dangerous extensions include:
 
 A dangerous file always wins over an otherwise valid video file. For example,
 a torrent containing both `movie.mkv` and `codec.exe` is dangerous.
+Files explicitly set to **Do not download** in qBittorrent are excluded from
+classification. If that selection changes after Guard stopped a torrent, Guard
+rechecks it, removes the dangerous tag, and resumes it when the remaining
+selected payload is safe.
+
+The dashboard prioritizes dangerous and suspicious items even in very large
+queues. A dangerous torrent can be deliberately exempted with **Allow &
+resume**. This adds the persistent `payload-allowed` qBittorrent tag; Guard will
+not stop that torrent again. Use this only after reviewing the listed files.
+An override cannot undo a release that was already blocklisted in Sonarr or
+Radarr.
 
 ## Why this exists
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -124,13 +125,38 @@ func main() {
 		})
 	}))
 	mux.HandleFunc("GET /api/torrents", auth(func(w http.ResponseWriter, r *http.Request) {
-		records, err := store.List(r.Context(), 100)
+		records, err := store.List(r.Context(), 500)
 		if err != nil {
 			http.Error(w, `{"error":"database unavailable"}`, http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(records)
+	}))
+	mux.HandleFunc("POST /api/torrents/{hash}/allow", auth(func(w http.ResponseWriter, r *http.Request) {
+		hash := r.PathValue("hash")
+		if !regexp.MustCompile(`^[a-fA-F0-9]{40}$`).MatchString(hash) {
+			http.Error(w, `{"error":"invalid torrent hash"}`, http.StatusBadRequest)
+			return
+		}
+		if err := qb.Tag(r.Context(), hash, "payload-allowed"); err != nil {
+			http.Error(w, `{"error":"could not add override tag"}`, http.StatusBadGateway)
+			return
+		}
+		if err := qb.Untag(r.Context(), hash, "payload-dangerous"); err != nil {
+			http.Error(w, `{"error":"override saved but dangerous tag could not be removed"}`, http.StatusBadGateway)
+			return
+		}
+		if record, found, err := store.Get(r.Context(), hash); err == nil && found {
+			record.PayloadStatus, record.ActionTaken = "allowed", "allowed by user"
+			_ = store.Save(r.Context(), record)
+		}
+		if err := qb.Resume(r.Context(), hash); err != nil {
+			http.Error(w, `{"error":"override saved but torrent could not be resumed"}`, http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"allowed"}`))
 	}))
 	mux.HandleFunc("GET /api/settings", auth(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
