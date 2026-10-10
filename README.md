@@ -17,6 +17,8 @@ Once metadata proves that an Arr download contains a dangerous file, Guard
 pauses it before qBittorrent can continue downloading gigabytes of unwanted or
 potentially malicious data.
 
+See [CHANGELOG.md](CHANGELOG.md) for version-by-version changes.
+
 ## What it does
 
 - Polls qBittorrent through its Web API.
@@ -49,6 +51,47 @@ resume**. This adds the persistent `payload-allowed` qBittorrent tag; Guard will
 not stop that torrent again. Use this only after reviewing the listed files.
 An override cannot undo a release that was already blocklisted in Sonarr or
 Radarr.
+
+## File selection, automatic release, and overrides
+
+Guard follows qBittorrent's per-file selection instead of treating every file
+listed in the torrent metadata as downloadable:
+
+1. A file with qBittorrent priority `0` (**Do not download**) is excluded from
+   payload classification.
+2. If every selected file is safe, the torrent is allowed to run normally.
+3. If a selected file has a dangerous extension, Guard applies its configured
+   pause/delete and Arr-reporting policy.
+4. Previously dangerous torrents are rechecked on every poll. If the dangerous
+   file is later deselected, Guard removes `payload-dangerous` and resumes the
+   torrent automatically.
+5. **Allow & resume** is an explicit whole-torrent override. It adds the
+   `payload-allowed` qBittorrent tag, removes the dangerous tag, records the
+   decision in the dashboard, and resumes the torrent. The tag makes the
+   override survive Guard restarts and database replacement.
+
+The override does not delete or disable individual files, prove that a payload
+is safe, reverse an Arr blocklist that already happened, or execute anything.
+Review the qBittorrent **Content** tab first. Prefer setting an unwanted file to
+**Do not download**; use the override only when you intentionally accept every
+selected file.
+
+### Example: `RARBG_DO_NOT_MIRROR.exe`
+
+Historical RARBG releases commonly contain a 99-byte plain-text marker named
+`RARBG_DO_NOT_MIRROR.exe`. It was given an executable extension to discourage
+automated mirroring, despite not being a Windows program. The widely documented
+marker has SHA-256
+`d0f72bdb78b2770ae165f360dc729c992daa42e6126f76818d87c9eef4a1cccd`.
+
+Guard intentionally does not globally trust this filename: a malicious file
+could reuse it. Instead, set the marker to **Do not download** in qBittorrent.
+Guard will then inspect only the remaining selected files and automatically
+release the torrent. If you choose to download the marker, **Allow & resume**
+provides a visible, persistent, per-torrent exception.
+
+Background: [TorrentFreak's 2019 explanation](https://torrentfreak.com/rarbg-adds-exe-files-to-torrents-but-no-need-to-panic-190126/)
+and an [ANY.RUN analysis of the known 99-byte file](https://any.run/report/d0f72bdb78b2770ae165f360dc729c992daa42e6126f76818d87c9eef4a1cccd/a307f196-8e2b-4c8f-bd36-ddbca103644a).
 
 ## Why this exists
 
@@ -287,7 +330,7 @@ docker compose logs --tail=100 torrentguard
 
 Do not run `docker compose down -v` unless you intentionally want to erase the
 saved Guard configuration and history. Pin the `image:` line to a version tag,
-such as `v0.2.0`, if you prefer explicit upgrades instead of `latest`.
+such as `v0.3.1`, if you prefer explicit upgrades instead of `latest`.
 
 ## Endpoints
 
@@ -295,6 +338,7 @@ such as `v0.2.0`, if you prefer explicit upgrades instead of `latest`.
 - `/settings` — authenticated integration settings
 - `/status` — authenticated counters and operating mode
 - `/api/torrents` — authenticated recent classification records
+- `POST /api/torrents/{hash}/allow` — authenticated persistent allow-and-resume override
 - `/health` — unauthenticated container health check
 
 ## Development
@@ -318,6 +362,9 @@ docker build -t torrent-payload-guard .
 ## Security model and limitations
 
 - Guard cannot inspect a torrent until qBittorrent has received its metadata.
+- A dangerous filename or extension is a policy signal, not proof that a file
+  contains malware. Conversely, a familiar filename is not proof of safety.
+- **Allow & resume** trusts the selected torrent; it is not a malware scan.
 - Arr feedback is best-effort because queue entries may appear asynchronously.
   Temporary failures and missing queue items are retried.
 - Protect port `8080` with `UI_PASSWORD`, a firewall, or a trusted reverse
