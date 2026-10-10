@@ -22,7 +22,8 @@ type Torrent struct {
 	AddedOn  int64   `json:"added_on"`
 }
 type File struct {
-	Name string `json:"name"`
+	Name     string `json:"name"`
+	Priority int    `json:"priority"`
 }
 
 type Client struct {
@@ -68,8 +69,14 @@ func (c *Client) Files(ctx context.Context, hash string) ([]File, error) {
 func (c *Client) Tag(ctx context.Context, hash, tag string) error {
 	return c.postForm(ctx, "/api/v2/torrents/addTags", url.Values{"hashes": {hash}, "tags": {tag}})
 }
+func (c *Client) Untag(ctx context.Context, hash, tag string) error {
+	return c.postForm(ctx, "/api/v2/torrents/removeTags", url.Values{"hashes": {hash}, "tags": {tag}})
+}
 func (c *Client) Pause(ctx context.Context, hash string) error {
 	return c.postForm(ctx, "/api/v2/torrents/stop", url.Values{"hashes": {hash}})
+}
+func (c *Client) Resume(ctx context.Context, hash string) error {
+	return c.postForm(ctx, "/api/v2/torrents/start", url.Values{"hashes": {hash}})
 }
 func (c *Client) Delete(ctx context.Context, hash string, deleteData bool) error {
 	return c.postForm(ctx, "/api/v2/torrents/delete", url.Values{
