@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/torrentguard ./cmd/torrentguard
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk add --no-cache ca-certificates tzdata 7zip \
     && addgroup -S torrentguard \
     && adduser -S -G torrentguard -h /app torrentguard \
     && mkdir -p /data \

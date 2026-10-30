@@ -52,6 +52,43 @@ not stop that torrent again. Use this only after reviewing the listed files.
 An override cannot undo a release that was already blocklisted in Sonarr or
 Radarr.
 
+## Archive inspection
+
+For Sonarr/Radarr downloads, Guard lists completed archive members with 7-Zip;
+archives are never extracted and their contents are never executed. Executables
+inside an archive trigger the same configured pause/delete and Arr blocklist
+policy as executables listed directly in a torrent, including video+executable
+mixtures. Individual archive files are inspected once qBittorrent reports them
+complete; this can happen before the rest of a multi-file torrent is finished.
+
+The container needs read-only access to the torrent directory. The example
+Compose file maps `TORRENT_DOWNLOAD_PATH` (host, default
+`/volume1/data/torrents`) to `ARCHIVE_ROOT=/downloads`. `QBIT_DOWNLOAD_ROOT`
+(default `/data/torrents`) is the corresponding prefix seen by qBittorrent.
+The mount must cover both incomplete and completed locations, and the container
+user must have read permission. The state database retains its separate writable
+`/data` mount. An unset/inaccessible archive root leaves archives suspicious.
+
+Archive verdicts are persisted in SQLite, keyed by torrent/file identity, path,
+size, modification time, inspection version and dangerous-extension policy.
+Unchanged archives reuse their results across polls and restarts. Completion
+triggers a fresh assessment; blocked/unresolved file selections are polled at
+most once every five minutes because qBit exposes no reliable selection revision.
+A deselected dangerous file may therefore take up to five minutes to release.
+Completed Arr payloads with old cached verdicts are rechecked after startup. Previously dangerous archives stay
+blocked if a later read fails. Explicit file deselection and `payload-allowed`
+continue to work. Password-protected, nested, incomplete, invalid, or unsupported
+archives remain unresolved; they are not automatically approved, even alongside
+video. Suspicious means tagged for review, not automatically paused. This is
+archive-member classification, not antivirus scanning or proof that a video is
+safe. Formats handled by the bundled 7-Zip include 7z, ZIP and RAR.
+
+Each listing is bounded to two seconds, 256 MiB virtual memory, 4 MiB output and
+10,000 members; at most four archives/four seconds are examined per torrent poll.
+Symlinks and paths outside the configured mount are refused. Archive member
+names are reported as `archive.7z ! member.exe`. Existing action mode, dry-run,
+per-file selection and Arr routing policies are preserved.
+
 ## File selection, automatic release, and overrides
 
 Guard follows qBittorrent's per-file selection instead of treating every file

@@ -21,6 +21,7 @@ type Config struct {
 	SonarrCategories, RadarrCategories                            []string
 	DatabasePath, ListenAddress                                   string
 	SettingsPath, UIUsername, UIPassword                          string
+	ArchiveRoot, QBitDownloadRoot                                 string
 	NeedsSetup                                                    bool
 }
 
@@ -45,6 +46,8 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("POLL_INTERVAL_SECONDS must be a positive integer")
 	}
 	c := Config{
+		ArchiveRoot:         os.Getenv("ARCHIVE_ROOT"),
+		QBitDownloadRoot:    env("QBIT_DOWNLOAD_ROOT", "/data/torrents"),
 		QBitURL:             strings.TrimRight(os.Getenv("QBIT_URL"), "/"),
 		QBitUsername:        os.Getenv("QBIT_USERNAME"),
 		QBitPassword:        os.Getenv("QBIT_PASSWORD"),

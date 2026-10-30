@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"torrentguard/internal/archive"
 	"torrentguard/internal/arr"
 	"torrentguard/internal/classifier"
 	"torrentguard/internal/config"
@@ -48,17 +50,21 @@ func (m *Metrics) Snapshot() map[string]uint64 {
 }
 
 type Service struct {
-	Config config.Config
-	QBit   QBit
-	Store  *state.Store
-	Sonarr Reporter
-	Radarr Reporter
-	Log    *slog.Logger
-	M      *Metrics
+	fileChecks     map[string]time.Time
+	fileComplete   map[string]bool
+	archiveChecked map[string]bool
+	archiveList    func(context.Context, string) ([]string, bool, error)
+	Config         config.Config
+	QBit           QBit
+	Store          *state.Store
+	Sonarr         Reporter
+	Radarr         Reporter
+	Log            *slog.Logger
+	M              *Metrics
 }
 
 func New(cfg config.Config, qb QBit, store *state.Store, logger *slog.Logger) *Service {
-	return &Service{Config: cfg, QBit: qb, Store: store, Sonarr: arr.New(cfg.SonarrURL, cfg.SonarrAPIKey),
+	return &Service{fileChecks: make(map[string]time.Time), fileComplete: make(map[string]bool), archiveChecked: make(map[string]bool), archiveList: archive.List, Config: cfg, QBit: qb, Store: store, Sonarr: arr.New(cfg.SonarrURL, cfg.SonarrAPIKey),
 		Radarr: arr.New(cfg.RadarrURL, cfg.RadarrAPIKey), Log: logger, M: &Metrics{}}
 }
 
@@ -70,6 +76,17 @@ func (s *Service) Scan(ctx context.Context) error {
 	present := make(map[string]struct{}, len(torrents))
 	for _, torrent := range torrents {
 		present[torrent.Hash] = struct{}{}
+	}
+	for key := range s.archiveChecked {
+		if _, ok := present[strings.SplitN(key, ":", 2)[0]]; !ok {
+			delete(s.archiveChecked, key)
+		}
+	}
+	for hash := range s.fileChecks {
+		if _, ok := present[hash]; !ok {
+			delete(s.fileChecks, hash)
+			delete(s.fileComplete, hash)
+		}
 	}
 	if err := s.Store.DeleteMissing(ctx, present); err != nil {
 		return err
@@ -103,21 +120,30 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		s.M.TorrentsScanned.Add(1)
 		return s.Store.Save(ctx, record)
 	}
-	if exists && record.PayloadStatus == string(classifier.Dangerous) {
+	// Old cached verdicts predate archive access. Revisit completed Arr payloads
+	// once per process, and unresolved archive verdicts on subsequent polls.
+	checkKey := fmt.Sprintf("%s:%d:%s", torrent.Hash, torrent.AddedOn, torrent.ContentPath)
+	if exists && s.Config.ArchiveRoot != "" && s.target(torrent) != "none" &&
+		record.PayloadStatus != string(classifier.Dangerous) &&
+		((record.PayloadStatus == string(classifier.Suspicious) && s.needsFileCheck(torrent)) || (torrent.Progress >= 1 && !s.archiveChecked[checkKey])) {
+		exists = false
+	}
+	if exists && record.PayloadStatus == string(classifier.Dangerous) && s.needsFileCheck(torrent) {
 		files, err := s.QBit.Files(ctx, torrent.Hash)
 		if err != nil {
 			return err
 		}
+		s.markFileCheck(torrent)
 		names := selectedFileNames(files)
 		if len(names) == 0 {
 			s.M.MetadataUnavailable.Add(1)
 			return nil
 		}
-		result := classifier.Classify(names, s.Config.DangerousExtensions)
+		result := s.classify(ctx, torrent, files)
 		if result.Status == classifier.Suspicious && s.target(torrent) == "none" {
 			result.Status, result.Reason = classifier.OK, "non-media torrent outside Sonarr/Radarr categories"
 		}
-		if result.Status != classifier.Dangerous {
+		if result.Status != classifier.Dangerous && !result.ArchiveUnresolved {
 			record.Name, record.Category, record.Tags = torrent.Name, torrent.Category, torrent.Tags
 			record.PayloadStatus, record.DangerousFiles = string(result.Status), result.DangerousFiles
 			if !s.Config.DryRun && s.Config.ActionMode != "observe" && record.ActionTaken != "" {
@@ -132,7 +158,9 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 			s.Log.Info("dangerous payload cleared after file selection changed", "hash", torrent.Hash, "name", torrent.Name)
 			return s.Store.Save(ctx, record)
 		}
-		record.DangerousFiles = result.DangerousFiles
+		if !result.ArchiveUnresolved || result.Status == classifier.Dangerous {
+			record.DangerousFiles = result.DangerousFiles
+		}
 	}
 	if exists {
 		if record.AddedOn == 0 {
@@ -172,12 +200,14 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		s.Log.Debug("metadata unavailable", "hash", torrent.Hash, "name", torrent.Name)
 		return nil
 	}
+	s.markFileCheck(torrent)
 	names := selectedFileNames(files)
 	if len(names) == 0 {
 		s.M.MetadataUnavailable.Add(1)
 		return nil
 	}
-	result := classifier.Classify(names, s.Config.DangerousExtensions)
+	result := s.classify(ctx, torrent, files)
+	s.archiveChecked[checkKey] = true
 	target := s.target(torrent)
 	if result.Status == classifier.Suspicious && target == "none" {
 		result.Status, result.Reason = classifier.OK, "non-media torrent outside Sonarr/Radarr categories"
@@ -196,6 +226,12 @@ func (s *Service) scanTorrent(ctx context.Context, torrent qbit.Torrent) error {
 		record.PayloadStatus, record.ActionTaken = "allowed", "allowed by user"
 		s.Log.Info("payload override applied", "hash", torrent.Hash, "name", torrent.Name)
 		return s.Store.Save(ctx, record)
+	}
+
+	if result.Status != classifier.Suspicious && hasTag(torrent.Tags, "payload-suspicious") && !s.Config.DryRun && s.Config.ActionMode != "observe" {
+		if err := s.QBit.Untag(ctx, torrent.Hash, "payload-suspicious"); err != nil {
+			return err
+		}
 	}
 
 	if result.Status == classifier.Dangerous && pending(record.ActionTaken) {
@@ -351,4 +387,16 @@ func (s *Service) target(torrent qbit.Torrent) string {
 		}
 	}
 	return "none"
+}
+
+// qBit's summary has no reliable file-selection revision. Only blocked or
+// unresolved payloads need the infrequent selection fallback; completion is
+// immediate. Listing the archive itself is independently cached on disk.
+func (s *Service) needsFileCheck(t qbit.Torrent) bool {
+	last, ok := s.fileChecks[t.Hash]
+	return !ok || (t.Progress >= 1) != s.fileComplete[t.Hash] || time.Since(last) >= 5*time.Minute
+}
+func (s *Service) markFileCheck(t qbit.Torrent) {
+	s.fileChecks[t.Hash] = time.Now()
+	s.fileComplete[t.Hash] = t.Progress >= 1
 }

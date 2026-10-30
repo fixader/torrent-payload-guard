@@ -24,9 +24,12 @@ services:
       UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:-}
       SETTINGS_PATH: /data/settings.json
+      ARCHIVE_ROOT: /downloads
+      QBIT_DOWNLOAD_ROOT: ${QBIT_DOWNLOAD_ROOT:-/data/torrents}
       DANGEROUS_EXTENSIONS: ${DANGEROUS_EXTENSIONS:-.exe,.scr,.bat,.cmd,.com,.msi,.msp,.ps1,.psm1,.vbs,.vbe,.js,.jse,.wsf,.wsh,.hta,.lnk,.jar,.reg,.dll,.apk}
     volumes:
       - torrentguard-data:/data
+      - ${TORRENT_DOWNLOAD_PATH:-/volume1/data/torrents}:/downloads:ro
     network_mode: host
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]

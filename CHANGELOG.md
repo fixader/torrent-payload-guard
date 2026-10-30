@@ -3,6 +3,21 @@
 All notable user-visible changes are documented here. Version numbers follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Persist archive verdicts and reuse unchanged results across restarts. Recheck
+  blocked/unresolved file selection at five-minute intervals or on completion,
+  instead of repeatedly fetching it every poll.
+- Inspect completed archive members for Arr torrents using bounded, read-only
+  7-Zip listings; archive-contained executables now use the existing dangerous
+  payload stop/report policy.
+- Revisit suspicious archives after download completion and old cached completed
+  payloads after startup. Failed reads cannot release previously dangerous data.
+- Keep encrypted/nested/unreadable payloads unresolved, including archives mixed
+  with otherwise valid video files. Add the read-only download mount to Compose.
+
 ## [0.3.1] - 2026-10-10
 
 ### Documentation

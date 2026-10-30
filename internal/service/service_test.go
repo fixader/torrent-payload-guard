@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"torrentguard/internal/config"
 	"torrentguard/internal/qbit"
@@ -291,6 +292,7 @@ func TestDangerousTorrentIsReleasedAfterFileIsDeselected(t *testing.T) {
 		t.Fatal(err)
 	}
 	qb.files["changed"][0].Priority = 0
+	svc.fileChecks["changed"] = time.Now().Add(-6 * time.Minute)
 	if err := svc.Scan(context.Background()); err != nil {
 		t.Fatal(err)
 	}

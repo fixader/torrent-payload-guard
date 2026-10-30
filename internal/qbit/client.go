@@ -13,17 +13,21 @@ import (
 )
 
 type Torrent struct {
-	Hash     string  `json:"hash"`
-	Name     string  `json:"name"`
-	Category string  `json:"category"`
-	Tags     string  `json:"tags"`
-	State    string  `json:"state"`
-	Progress float64 `json:"progress"`
-	AddedOn  int64   `json:"added_on"`
+	ContentPath string  `json:"content_path"`
+	SavePath    string  `json:"save_path"`
+	Hash        string  `json:"hash"`
+	Name        string  `json:"name"`
+	Category    string  `json:"category"`
+	Tags        string  `json:"tags"`
+	State       string  `json:"state"`
+	Progress    float64 `json:"progress"`
+	AddedOn     int64   `json:"added_on"`
 }
 type File struct {
-	Name     string `json:"name"`
-	Priority int    `json:"priority"`
+	Progress float64 `json:"progress"`
+	Size     int64   `json:"size"`
+	Name     string  `json:"name"`
+	Priority int     `json:"priority"`
 }
 
 type Client struct {

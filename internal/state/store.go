@@ -64,6 +64,12 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err = db.Exec(`CREATE TABLE IF NOT EXISTS archive_checks (
+ hash TEXT NOT NULL, path TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL,
+ PRIMARY KEY(hash,path))`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
@@ -148,9 +154,26 @@ func (s *Store) DeleteMissing(ctx context.Context, present map[string]struct{}) 
 		return err
 	}
 	for _, hash := range missing {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM archive_checks WHERE hash=?`, hash); err != nil {
+			return err
+		}
 		if _, err := s.db.ExecContext(ctx, `DELETE FROM torrents WHERE hash=?`, hash); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Store) ArchiveResult(ctx context.Context, hash, path, fingerprint string) (string, bool, error) {
+	var result string
+	err := s.db.QueryRowContext(ctx, `SELECT result FROM archive_checks WHERE hash=? AND path=? AND fingerprint=?`, hash, path, fingerprint).Scan(&result)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	return result, err == nil, err
+}
+func (s *Store) SaveArchiveResult(ctx context.Context, hash, path, fingerprint, result string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO archive_checks(hash,path,fingerprint,result) VALUES(?,?,?,?)
+ ON CONFLICT(hash,path) DO UPDATE SET fingerprint=excluded.fingerprint,result=excluded.result`, hash, path, fingerprint, result)
+	return err
 }

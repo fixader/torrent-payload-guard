@@ -19,10 +19,11 @@ var videoExtensions = map[string]bool{
 }
 
 type Result struct {
-	Status         Status   `json:"status"`
-	DangerousFiles []string `json:"dangerous_files"`
-	VideoFiles     []string `json:"video_files"`
-	Reason         string   `json:"reason"`
+	ArchiveUnresolved bool     `json:"archive_unresolved,omitempty"`
+	Status            Status   `json:"status"`
+	DangerousFiles    []string `json:"dangerous_files"`
+	VideoFiles        []string `json:"video_files"`
+	Reason            string   `json:"reason"`
 }
 
 func Classify(files []string, dangerousExtensions []string) Result {
